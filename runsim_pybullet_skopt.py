@@ -16,8 +16,10 @@ from contextlib import contextmanager
 
 
 N_EXPERIMENTS = 20
-N_TRIALS = 50
+N_TRIALS = 100
+GUI = p.GUI #p.DIRECT
 
+#avoid prints internal to pybullet
 @contextmanager
 def stdout_redirected(to=os.devnull):
     '''
@@ -54,8 +56,6 @@ def handler(signum, frame):
 #fname= 'result.bz2'
 fname= 'rollf_weight.bz2'
 
-
-#PHYSICS_ENGINE = "ode"  # "ode" "dart" "bullet"
 
 """
 model	weight(g)	object	description
@@ -103,8 +103,7 @@ def load_experiment(fname="effData.txt"):
     return mvec, vvec, weight, mdist
 
 def call_simulator():
-    #print("start sim")
-    physicsClient = p.connect(p.GUI)#or p.DIRECT for non-graphical version
+    physicsClient = p.connect(GUI)#or p.DIRECT for non-graphical version
 
     p.setAdditionalSearchPath(pybullet_data.getDataPath()) #optionally
     p.setGravity(0,0,-9.8)
@@ -116,11 +115,15 @@ def reset_world():
     p.resetSimulation()
     #gazebo_error_handling(["gz", "world", "-r"])
 
-def load_sdf():
-    #print("load sdf")
-    boxId = p.loadSDF("object.sdf")
+#def load_sdf():
+#    #print("load sdf")
+#    boxId = p.loadSDF("object.sdf")
+#    return boxId
+#    #gazebo_error_handling(["gz", "model", "-m", "object", "-f", "object.sdf"])
+
+def load_object():
+    boxId = p.loadURDF("object.urdf")
     return boxId
-    #gazebo_error_handling(["gz", "model", "-m", "object", "-f", "object.sdf"])
 
 
 def load_robot():
@@ -133,7 +136,7 @@ def load_robot():
 def delete_object(objID):
     #print("delete object")
     #gazebo_error_handling(["gz", "model", "-m", "object", "-d"])
-    p.removeBody(objID[0])
+    p.removeBody(objID)
 
 
 def delete_robot(robotID):
@@ -147,11 +150,36 @@ def delete_robot(robotID):
 
 def get_obj_xy(objID):
     #gz model -m object -p
-    pos, ori = p.getBasePositionAndOrientation(objID[0])
+    pos, ori = p.getBasePositionAndOrientation(objID)
     pos=pos[0:-1]
     #print(pos)
     return pos
 
+def gen_object(weight = 0.3, mu1=0.3, mu2=0.3, slip=0.0, iner=np.eye(3), center_of_mass=np.zeros((3,)), object_name="object", startpose=(0.0,0.0,0.0,0.0,0.0,0.0)):
+    tree = ET.parse('template_object.urdf')
+    root = tree.getroot()
+
+    world = root[0]
+    #if(world.tag!="world"):
+    #    raise Exception("Template world file malformed")
+    for mesh in root.findall(".//mesh"):
+        mesh.attrib['filename'] = "cvx_{}.stl".format(object_name)
+
+    #Set model mass
+    for mass in root.findall(".//mass"):
+        mass.attrib['value'] = str(weight)
+
+    for inert in root.findall(".//inertia"):
+        inert.attrib['ixx'] = str(iner[0, 0])
+        inert.attrib['ixy'] = str(iner[0, 1])
+        inert.attrib['ixz'] = str(iner[0, 2])
+        inert.attrib['iyy'] = str(iner[1, 1])
+        inert.attrib['iyz'] = str(iner[1, 2])
+        inert.attrib['izz'] = str(iner[2, 2])
+
+    tree.write('object.urdf')
+
+"""
 def gen_object(weight = 0.3, mu1=0.3, mu2=0.3, slip=0.0, iner=np.eye(3), center_of_mass=np.zeros((3,)), object_name="object", startpose=(0.0,0.0,0.0,0.0,0.0,0.0)):
     tree = ET.parse('template_object.sdf')
     root = tree.getroot()
@@ -214,6 +242,7 @@ def gen_object(weight = 0.3, mu1=0.3, mu2=0.3, slip=0.0, iner=np.eye(3), center_
                 pose.text = str(startpose)[1:-1]
 
     tree.write('object.sdf')
+"""
 
 def gen_robot(action_name, tool_name):
     tree = ET.parse('template_robot_{}.sdf'.format(action_name))
@@ -240,7 +269,7 @@ def cost(pos, des, mdist):
     #print("dist: {}, mdist: {}, cost: {}".format(dist, mdist, cst))
     return cst
 
-def gen_run_experiment(pbar, object_name = "yball", tools = ("rake", "hook"), actions = ("tap_from_left", "draw")):
+def gen_run_experiment(pbar, param_names, object_name = "yball", tools = ("rake", "hook"), actions = ("tap_from_left", "draw")):
 
     #get properties:
     object_mesh = stl.Mesh.from_file("cvx_{}.stl".format(object_name))
@@ -249,39 +278,29 @@ def gen_run_experiment(pbar, object_name = "yball", tools = ("rake", "hook"), ac
     inertia_tensor = props[2]
     gen_object(weight=0.1, mu1=0.1, mu2=0.1, slip=0.1, iner=inertia_tensor,
                      center_of_mass=center_of_mass, object_name=object_name, startpose=(0,0,0.05,0,0,0))
-    objID = load_sdf()
+
+    objID = load_object()
 
 
-
-    #train_tools = train_tools + test_tools
-    #train_actions = train_actions + test_actions
-
-    #def f(mu1 = 0.1, slip=0.0, weight=0.058):
     def f(params):
-        #latf=1.0, spif= 0.01, rollf= 0.01, rest=0.01, weight=0.1
-        #latf, spif, rollf, rest, weight = params
-        #print(latf, spif, rollf, rest, weight)
-        rollf, weight = params
-        spif = latf = rest = None
-
-        #actions = ["draw", "tap_from_left", "tap_from_right", "push"]
+        dic_params = {pname:params[i] for i,pname in enumerate(param_names)}
 
         offset = 0.01 if object_name=="yball" else 0.0
 
         init_poses = {"rake":  {"push":       np.array([0.0, 0.0, 0.0, -0.04-offset, 0.0]),
                                          "draw":           np.array([0.0, 0.0, 0.0, 0.055+offset, 0.025]),
-                                         "tap_from_left":  np.array([0.0, 0.0, 0.0, 0.00, -0.145-offset]),
-                                         "tap_from_right": np.array([0.0, 0.0, 0.0, 0.00, 0.14+offset])
+                                         "tap_from_right":  np.array([0.0, 0.0, 0.0, 0.00, -0.145-offset]),
+                                         "tap_from_left": np.array([0.0, 0.0, 0.0, 0.00, 0.14+offset])
                                         },
                       "stick":  {"push": np.array([0.0, 0.0, 0.0, -0.035-offset, 0.0]),
                                           "draw": np.array([0.0, 0.0, 0.0, 0.035+offset, -0.05]),
-                                          "tap_from_left": np.array([0.0, 0.0, 0.0, 0.06, -0.065-offset]),
-                                          "tap_from_right": np.array([0.0, 0.0, 0.0, 0.06, 0.05+offset])
+                                          "tap_from_right": np.array([0.0, 0.0, 0.0, 0.06, -0.065-offset]),
+                                          "tap_from_left": np.array([0.0, 0.0, 0.0, 0.06, 0.05+offset])
                                         },
                       "hook": {    "push": np.array([0.0, 0.0, 0.0, -0.04-offset, 0.0]),
                                             "draw": np.array([0.0, 0.0, 0.0, 0.15+offset, 0.05]),
-                                            "tap_from_left": np.array([0.0, 0.0, 0.0, 0.06, -0.075-offset]),
-                                            "tap_from_right": np.array([0.0, 0.0, 0.0, 0.09, 0.10+offset])
+                                            "tap_from_right": np.array([0.0, 0.0, 0.0, 0.06, -0.075-offset]),
+                                            "tap_from_left": np.array([0.0, 0.0, 0.0, 0.09, 0.10+offset])
                                         }
 
                       }
@@ -305,31 +324,19 @@ def gen_run_experiment(pbar, object_name = "yball", tools = ("rake", "hook"), ac
                                 toolID=load_robot()
 
                             nonlocal objID
-                            if(toolID[0]==objID[0]):
+                            if(toolID[0]==objID):
                                 raise ValueError
-                            #p.resetJointState(toolID[0],0,-0.12,0.0,0)
 
                             mu = init_poses[tool_name][action_name]
-                            yaw, pitch, roll, x, y = np.random.normal(mu, np.array([1.0, 1.0, 1.0, 0.01, 0.01]))
+                            yaw, pitch, roll, x, y = mu + np.random.normal(np.zeros_like(mu), np.array([1.0, 1.0, 1.0, 0.01, 0.01]))
                             ipos = np.array([x, y])
 
-                            p.resetBasePositionAndOrientation(objID[0], posObj=[x,y,0.05], ornObj=[yaw, pitch, roll,1])
-                            #p.changeDynamics(objID[0], 0,  mass=weight, lateralFriction=latf, spinningFriction=spif, rollingFriction=rollf, restitution=rest)
-                            p.changeDynamics(objID[0], 0,  mass=weight, rollingFriction=rollf )
-
-
-                            #reset_world()
-
-
-                            get_obj_xy(objID)
-                            # input("Press Enter to continue...")
-
-
-
+                            p.resetBasePositionAndOrientation(objID, posObj=[x,y,0.05], ornObj=[yaw, pitch, roll,1])
+                            p.changeDynamics(objID, 0,   **dic_params)
 
                             mu = 0.04
                             sigma = 0.001
-                            speed = np.random.normal(mu, sigma)
+                            speed = mu#np.random.normal(mu, sigma)
 
                             if action_name=="push":
                                 base_speed=[-speed, 0, 0]
@@ -337,10 +344,10 @@ def gen_run_experiment(pbar, object_name = "yball", tools = ("rake", "hook"), ac
                             elif action_name == "draw":
                                 base_speed=[speed, 0, 0]
                                 base_pos_limit = lambda js : js[0] >= 0.12
-                            elif action_name == "tap_from_right":
+                            elif action_name == "tap_from_left":
                                 base_speed=[0, speed, 0]
                                 base_pos_limit = lambda js : js[1] >= 0.12
-                            elif action_name == "tap_from_left":
+                            elif action_name == "tap_from_right":
                                 base_speed=[0, -speed, 0]
                                 base_pos_limit = lambda js : js[1] <= -0.12
                             else:
@@ -348,15 +355,15 @@ def gen_run_experiment(pbar, object_name = "yball", tools = ("rake", "hook"), ac
 
 
                             # Let object fall to the ground and stop it
-                            pxyz, pori = p.getBasePositionAndOrientation(objID[0])
+                            pxyz, pori = p.getBasePositionAndOrientation(objID)
                             nxyz = 100 * np.ones_like(pxyz)
                             while not np.allclose(nxyz[-1:], pxyz[-1:], atol=1e-6):
                                 p.stepSimulation()
                                 pxyz = nxyz
-                                nxyz, nori = p.getBasePositionAndOrientation(objID[0])
+                                nxyz, nori = p.getBasePositionAndOrientation(objID)
 
-                            p.resetBasePositionAndOrientation(objID[0], posObj=pxyz, ornObj=pori)
-                            p.resetBaseVelocity(objID[0], 0)
+                            p.resetBasePositionAndOrientation(objID, posObj=pxyz, ornObj=pori)
+                            p.resetBaseVelocity(objID, 0)
                             ppos = get_obj_xy(objID)
                             npos = 100 * np.ones_like(ppos)
                             iters = 0
@@ -382,29 +389,17 @@ def gen_run_experiment(pbar, object_name = "yball", tools = ("rake", "hook"), ac
 
                             pos = npos
 
-                            # input("Press Enter to continue...")
-                            #delete_object(objID)
                             delete_robot(toolID)
-                            #p.removeBody(objID[0])
-                            #p.removeBody(toolID[0])
-
-                            #p.resetSimulation()
-                            # time.sleep(1)
                             cumulative_cost += cost(pos - ipos, target_pos, mdist)
 
                             success = True
                         except ValueError:
-                            #try:
-                            #   # p.disconnect(p.GUI)
-                            #except p.error:
-                            #    print("error")
-                            #call_simulator()
                             p.resetSimulation()
                             p.setAdditionalSearchPath(pybullet_data.getDataPath()) #optionally
                             p.setGravity(0,0,-9.8)
                             p.setPhysicsEngineParameter(enableFileCaching=0)
                             planeId = p.loadURDF("plane.urdf")
-                            objID=load_sdf()
+                            objID=load_object()
 
 
             costs[iter] = cumulative_cost
@@ -412,20 +407,17 @@ def gen_run_experiment(pbar, object_name = "yball", tools = ("rake", "hook"), ac
 
         signal.alarm(0)
         out = np.mean(costs)
-        #print('\033[93m' + str(params)+'\033[0m')
-        #print('\033[92m'+str(out)+'\033[0m')
         pbar.set_description('cost: %0.2f' % (out))
         pbar.update(1)
         return out
     return f
 
-def optimize():
-    #pbounds = {'latf': (0.05, 0.95), 'spif': (0.05, 0.95), 'rollf': (0.05, 0.95), 'rest': (0.05, 0.95), 'weight': (0.010, 0.1)}
-    pbounds = [(0.05, 0.95), (0.05, 0.95), (0.05, 0.95),  (0.05, 0.95), (0.010, 0.1)]
-    #pbounds = [(0.05, 10.0), (0.01, 0.1)]
+def optimize(param_names):
+    dbounds = {'lateralFriction': (0.05, 0.95), 'spinningFriction': (0.05, 0.95), 'rollingFriction': (0.05, 0.95), 'restitution': (0.05, 0.95), 'mass': (0.010, 0.1)}
+    pbounds = [dbounds[param] for param in param_names]
 
     with tqdm(total=N_TRIALS - 1, file=sys.stdout) as pbar:
-        run_experiment = gen_run_experiment(pbar)
+        run_experiment = gen_run_experiment(pbar, param_names)
         res = gp_minimize(run_experiment, pbounds, n_calls=N_TRIALS )
         #res = forest_minimize(run_experiment, pbounds, n_calls=100)
         #res = dummy_minimize(run_experiment, pbounds, n_calls=N_TRIALS)
@@ -433,13 +425,13 @@ def optimize():
     return res
 
 
-def test():
+def test(param_names):
     test_tools    = ("hook", "rake")
     test_actions  = ("draw", "tap_from_left")
 
 
     with tqdm(total=N_TRIALS - 1, file=sys.stdout) as pbar:
-        func = gen_run_experiment(pbar, tools=test_tools, actions=test_actions)
+        func = gen_run_experiment(pbar, param_names, tools=test_tools, actions=test_actions)
 
         c_all = []
         costs = []
@@ -476,6 +468,13 @@ def test():
     print(costs)
     print(ind)
 
+class make_video:
+        def __enter__(self):
+            out = p.startStateLogging(p.STATE_LOGGING_VIDEO_MP4, "pybullet.mp4")
+            return out
+
+        def __exit__(self, type, value, traceback):
+            p.stopStateLogging(p.STATE_LOGGING_VIDEO_MP4)
 
 
 if __name__ == "__main__":
@@ -483,8 +482,10 @@ if __name__ == "__main__":
 
     call_simulator()
 
-    #optimize()
-    p.startStateLogging(p.STATE_LOGGING_VIDEO_MP4, "pybullet.mp4")
+    param_names = ['mass', 'lateralFriction']#, 'spinningFriction', 'rollingFriction', 'restitution']
 
-    test()
-    p.stopStateLogging(p.STATE_LOGGING_VIDEO_MP4)
+    optimize(param_names)
+
+    #with make_video() as vid:
+    #    test(param_names)
+
