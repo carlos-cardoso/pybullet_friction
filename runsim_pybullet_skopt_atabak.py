@@ -216,7 +216,7 @@ def cost(pos, des, mdist):
   return cst
 
 
-def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake", "stick"), actions=("tap_from_left", "tap_from_right")):
+def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake", "stick"), actions=("tap_from_left", "draw")):
   # get properties:
   object_mesh = stl.Mesh.from_file("cvx_{}.stl".format(object_name))
   props = object_mesh.get_mass_properties()
@@ -267,7 +267,7 @@ def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake", "st
         # target_pos, target_var, gnd_weight, mdist = load_experiment(
         #   "{}/{}/effData.txt".format(object_name, action_name))
         target_pos, target_var, gnd_weight, mdist, real_eff_history = load_experiment(
-          "{}/{}/effData.txt".format(object_name, action_name), get_eff_data=True)
+          "{}/{}/{}.txt".format(object_name, action_name, tool_name), get_eff_data=True)
         for iter in range(N_EXPERIMENTS):
           success = False
           while not success:
@@ -417,7 +417,7 @@ def test(param_names):
   # test_tools = ("hook", "rake")
   test_tools = ("hook",)
   # test_actions = ("draw", "tap_from_left")
-  test_actions = ("draw",)
+  test_actions = ("tap_from_left",)
 
   with tqdm(total=N_TRIALS - 1, file=sys.stdout) as pbar:
     func = gen_run_experiment(pbar, param_names, tools=test_tools, actions=test_actions)

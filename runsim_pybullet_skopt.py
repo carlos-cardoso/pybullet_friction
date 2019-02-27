@@ -315,7 +315,7 @@ def gen_run_experiment(pbar, param_names, object_name = "yball", tools = ("rake"
                         try:
                             signal.alarm(60)
                             target_pos, target_var, gnd_weight, mdist = load_experiment(
-                                "{}/{}/effData.txt".format(object_name, action_name))
+                                "{}/{}/{}.txt".format(object_name, action_name, tool_name))
 
 
                             gen_robot(action_name, tool_name)
