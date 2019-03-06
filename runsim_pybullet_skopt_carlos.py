@@ -16,11 +16,14 @@ import os
 import sys
 from contextlib import contextmanager
 from matplotlib import pyplot as plt
+from universal_divergence import estimate
 
 from continuous_kl import KLdivergence
 
 N_EXPERIMENTS = 20  # running experiment per object per tool
 N_TRIALS = 50  # optimization steps
+PYBULLET_INSTANCE = p.DIRECT
+WATCHDOG = True
 
 
 @contextmanager
@@ -59,7 +62,6 @@ def handler(signum, frame):
 
 
 # fname= 'result.bz2'
-fname = 'saved/rollf_weight.bz2'
 
 # PHYSICS_ENGINE = "ode"  # "ode" "dart" "bullet"
 
@@ -113,11 +115,11 @@ def load_experiment(fname="effData.txt", get_eff_data=False):
 
 def call_simulator():
   # print("start sim")
-  physicsClient = p.connect(p.GUI)  # or p.DIRECT for non-graphical version
+  physicsClient = p.connect(PYBULLET_INSTANCE)  # or p.DIRECT for non-graphical version
 
   p.setAdditionalSearchPath(pybullet_data.getDataPath())  # optionally
   p.setGravity(0, 0, -9.8)
-  p.setPhysicsEngineParameter(enableFileCaching=0)
+  p.setPhysicsEngineParameter(enableFileCaching=0)#, fixedTimeStep=0.0001)
   planeId = p.loadURDF("plane.urdf")
 
 
@@ -182,6 +184,9 @@ def gen_object(weight=0.3, mu1=0.3, mu2=0.3, slip=0.0, iner=np.eye(3), center_of
   for mass in root.findall(".//mass"):
     mass.attrib['value'] = str(weight)
 
+  for origin in root.findall(".//origin"):
+    origin.attrib["xyz"] = str(center_of_mass)[1:-1]
+
   for inert in root.findall(".//inertia"):
     inert.attrib['ixx'] = str(iner[0, 0])
     inert.attrib['ixy'] = str(iner[0, 1])
@@ -209,14 +214,21 @@ def gen_robot(action_name, tool_name):
   tree.write('robot.sdf')
 
 
-def cost(pos, des, mdist):
-  dist = np.linalg.norm(pos)
-  cst = abs(dist - mdist)
-  # print("dist: {}, mdist: {}, cost: {}".format(dist, mdist, cst))
-  return cst
+#def cost(pos, des, mdist):
+#  dist = np.linalg.norm(pos)
+#  cst = abs(dist - mdist)
+#  return cst
+
+def cost(x,y):
+  return (100*(np.linalg.norm(x.mean(0)-y.mean(0)) + np.linalg.norm(x.var(0)-y.var(0))))**2
+
+#def cost(x,y):
+#  xmu, xstd = norm.fit(x)
+#  ymu, ystd = norm.fit(y)
 
 
-def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake", "stick"), actions=("tap_from_left", "draw")):
+
+def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake",), actions=("tap_from_left", "push")):
   # get properties:
   object_mesh = stl.Mesh.from_file("cvx_{}.stl".format(object_name))
   props = object_mesh.get_mass_properties()
@@ -247,7 +259,7 @@ def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake", "st
                            "tap_from_left": np.array([0.0, 0.0, 0.0, 0.00, 0.14 + offset])
                            },
                   "stick": {"push": np.array([0.0, 0.0, 0.0, -0.035 - offset, 0.0]),
-                            "draw": np.array([0.0, 0.0, 0.0, 0.035 + offset, -0.05]),
+                            "draw": np.array([0.0, 0.0, 0.0, 0.035 + offset, 0.03]),
                             "tap_from_right": np.array([0.0, 0.0, 0.0, 0.06, -0.065 - offset]),
                             "tap_from_left": np.array([0.0, 0.0, 0.0, 0.06, 0.05 + offset])
                             },
@@ -266,13 +278,16 @@ def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake", "st
       for action_name in actions:
         # target_pos, target_var, gnd_weight, mdist = load_experiment(
         #   "{}/{}/effData.txt".format(object_name, action_name))
+#        target_pos, target_var, gnd_weight, mdist, real_eff_history = load_experiment(
+#          "{}/{}/{}.txt".format(object_name, action_name, tool_name), get_eff_data=True)
         target_pos, target_var, gnd_weight, mdist, real_eff_history = load_experiment(
-          "{}/{}/{}.txt".format(object_name, action_name, tool_name), get_eff_data=True)
+                  "/home/vizzy/repositories/affordance-datasets/visual-affordances-of-objects-and-tools/{}/{}/{}/effData.txt".format(tool_name, object_name, action_name), get_eff_data=True)
         for iter in range(N_EXPERIMENTS):
           success = False
           while not success:
             try:
-              signal.alarm(60)
+              if WATCHDOG:
+                signal.alarm(60)
 
               gen_robot(action_name, tool_name)
 
@@ -283,13 +298,24 @@ def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake", "st
               if (toolID == objID):
                 raise ValueError
 
+
               mu = init_poses[tool_name][action_name]
+              #yaw, pitch, roll, x, y = np.random.normal(mu, np.array([1.0, 1.0, 1.0, dic_params['xnoise'], dic_params['ynoise']]))
               yaw, pitch, roll, x, y = np.random.normal(mu, np.array([1.0, 1.0, 1.0, 0.01, 0.01]))
               ipos = np.array([x, y])
 
               p.resetBasePositionAndOrientation(objID, posObj=[x, y, 0.05], ornObj=[yaw, pitch, roll, 1])
               # p.changeDynamics(objID[0], 0,  mass=weight, lateralFriction=latf, spinningFriction=spif, rollingFriction=rollf, restitution=rest)
-              p.changeDynamics(objID, 0, **dic_params)
+              dic_params2=dict(dic_params)
+              dic_params2['linearDamping']=0.0
+              dic_params2['angularDamping']=0.0
+              #dic_params['lateralFriction']=0.0001
+              #dic_params['spinningFriction']=0.0001
+              #dic_params['rollingFriction']=0.0001
+              #del dic_params2['xnoise']
+              #del dic_params2['ynoise']
+              p.changeDynamics(objID, -1, **dic_params2)
+              #print(p.getDynamicsInfo(objID, -1))
 
               # reset_world()
 
@@ -373,25 +399,31 @@ def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake", "st
               p.setGravity(0, 0, -9.8)
               p.setPhysicsEngineParameter(enableFileCaching=0)
               planeId = p.loadURDF("plane.urdf")
+              p.changeDynamics(planeId, -1, restitution=.97, linearDamping=0.0, angularDamping=0.0)
               objID = load_object()
 
 
 
-        plt.scatter(real_eff_history[:,1], -real_eff_history[:,0], s=40,c="red", edgecolors='none', label="real")
-        plt.scatter(sim_eff_history[:, 1], -sim_eff_history[:, 0], s=40, c="blue", edgecolors='none', label="sim")
-        plt.legend(loc=2)
-        plt.title('action: {}, tool: {}'.format(action_name, tool_name))
-        plt.show()
+        #plt.scatter(real_eff_history[:,1], -real_eff_history[:,0], s=40,c="red", edgecolors='none', label="real")
+        #plt.scatter(sim_eff_history[:, 1], -sim_eff_history[:, 0], s=40, c="blue", edgecolors='none', label="sim")
+        #plt.legend(loc=2)
+        #plt.title('action: {}, tool: {}'.format(action_name, tool_name))
+        #plt.show()
         # import pdb;pdb.set_trace()
-        costs.append(KLdivergence(real_eff_history, sim_eff_history))
+        #kld=KLdivergence(real_eff_history, sim_eff_history)
+        #kld=cost(real_eff_history, sim_eff_history)
+        kld = estimate(real_eff_history, sim_eff_history)
+        costs.append(kld)
 
       # costs[iter] = cumulative_cost
       cumulative_cost = 0
 
-    signal.alarm(0)
+    if WATCHDOG:
+      signal.alarm(0)
     out = sum(costs)/len(costs)
     # print('\033[93m' + str(params)+'\033[0m')
     # print('\033[92m'+str(out)+'\033[0m')
+    print('\033[93m' + str(dic_params)+'\033[0m')
     pbar.set_description('cost: %0.2f' % (out))
     pbar.update(1)
     return out
@@ -399,28 +431,30 @@ def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake", "st
   return f
 
 
-def optimize(param_names):
-  dbounds = {'lateralFriction': (0.05, 0.95), 'spinningFriction': (0.05, 0.95), 'rollingFriction': (0.05, 0.95),
-             'restitution': (0.05, 0.95), 'mass': (0.010, 0.1)}
+def optimize(param_names, fname, object_name="yball", opt_f=gp_minimize):
+  dbounds = {'lateralFriction': (0.0001, 5.0), 'spinningFriction': (0.0001, 5.0), 'rollingFriction': (0.0001, 5.0),
+             'restitution': (0.0001, 0.95), 'mass': (0.0001, 10.0), 'xnoise' : (0.0, 0.05), 'ynoise' : (0.0, 0.05),
+             'xmean' : (-0.02, 0.02), 'ymean' : (-0.02, 0.02)}
   pbounds = [dbounds[param] for param in param_names]
 
   with tqdm(total=N_TRIALS - 1, file=sys.stdout) as pbar:
-    run_experiment = gen_run_experiment(pbar, param_names)
-    res = gp_minimize(run_experiment, pbounds, n_calls=N_TRIALS)
+    run_experiment = gen_run_experiment(pbar, param_names, object_name=object_name)
+    #res = gp_minimize(run_experiment, pbounds, n_calls=N_TRIALS)
     # res = forest_minimize(run_experiment, pbounds, n_calls=100)
-    # res = dummy_minimize(run_experiment, pbounds, n_calls=N_TRIALS)
+    #res = dummy_minimize(run_experiment, pbounds, n_calls=N_TRIALS)
+    res = opt_f(run_experiment, pbounds, n_calls=N_TRIALS)
   dump(res, fname, store_objective=False)
   return res
 
 
-def test(param_names):
+def test(param_names, fname, obj_name):
   # test_tools = ("hook", "rake")
   test_tools = ("hook",)
   # test_actions = ("draw", "tap_from_left")
-  test_actions = ("tap_from_left",)
+  test_actions = ("tap_from_right",)
 
   with tqdm(total=N_TRIALS - 1, file=sys.stdout) as pbar:
-    func = gen_run_experiment(pbar, param_names, tools=test_tools, actions=test_actions)
+    func = gen_run_experiment(pbar, param_names, tools=test_tools, actions=test_actions, object_name=obj_name)
 
     c_all = []
     costs = []
@@ -459,12 +493,20 @@ def test(param_names):
 
 
 if __name__ == "__main__":
-  signal.signal(signal.SIGALRM, handler)
+
+  if WATCHDOG:
+    signal.signal(signal.SIGALRM, handler)
 
   call_simulator()
-  param_names = ['mass', 'lateralFriction']  # , 'spinningFriction', 'rollingFriction', 'restitution']
-  optimize(param_names)
+  param_names = ['mass', 'lateralFriction', 'rollingFriction']#, 'xnoise', 'ynoise']
+
+  fname = 'saved/rollf_weight.bz2'
+  object_name = ["yball", "ylego"]
+
+  for obj in object_name:
+    #optimize(param_names, "saved/gp_{}.bz2".format(obj), obj, opt_f=gp_minimize)
+    test(param_names, "saved/gp_{}.bz2".format(obj), obj)
+
   #p.startStateLogging(p.STATE_LOGGING_VIDEO_MP4, "pybullet.mp4")
 
-  test(param_names)
   #p.stopStateLogging(p.STATE_LOGGING_VIDEO_MP4)

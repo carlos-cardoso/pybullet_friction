@@ -159,19 +159,21 @@ def load_experiment(fname="bags/bag1"):
         if ti > end_time and end_ind == 0:
             end_ind = ind
 
-    forces_x = np.array(df_force_field['field.sensorArray6.force.x'])
-    forces_y = np.array(df_force_field['field.sensorArray6.force.y'])
-    forces_z = np.array(df_force_field['field.sensorArray6.force.z'])
+    #forces_x = np.array(df_force_field['field.sensorArray6.force.x'])
+    #forces_y = np.array(df_force_field['field.sensorArray6.force.y'])
+    #forces_z = np.array(df_force_field['field.sensorArray6.force.z'])
 
-    forces_x = forces_x-np.mean(forces_x[0:5])
-    forces_y = forces_y-np.mean(forces_y[0:5])
-    forces_z = forces_z-np.mean(forces_z[0:5])
+    #forces_x = forces_x-np.mean(forces_x[0:5])
+    #forces_y = forces_y-np.mean(forces_y[0:5])
+    #forces_z = forces_z-np.mean(forces_z[0:5])
 
-    #forces_x = np.array(df_force_field['field.sensorArray6.force.x'][start_ind:end_ind])
-    #forces_y = np.array(df_force_field['field.sensorArray6.force.y'][start_ind:end_ind])
-    #forces_z = np.array(df_force_field['field.sensorArray6.force.z'][start_ind:end_ind])
+    forces_x = np.array(df_force_field['field.sensorArray6.force.x'][start_ind:end_ind])
+    forces_y = np.array(df_force_field['field.sensorArray6.force.y'][start_ind:end_ind])
+    forces_z = np.array(df_force_field['field.sensorArray6.force.z'][start_ind:end_ind])
 
     forces = np.sqrt(forces_x**2 + forces_y**2 + forces_z**2)
+    forces = forces-np.mean(forces[0:5])
+    #forces = forces_z-np.mean(forces_z[0:5])
     # print(forces_z)
 
     return object_name[0], object_orientation[0], velocity[0], duration[0], forces
@@ -268,13 +270,13 @@ def cost(pos, des, mdist):
     return cst
 
 def find_switch_point(timeseries):
-    indx= np.arange(0, len(timeseries))
     for ind, val in enumerate(timeseries):
         if val > (timeseries.max()-timeseries.min())/2.0:
-            print(ind)
+            #print("Switchpoint:{}/{}%".format(ind, len(timeseries)))
             return ind
-
 """
+
+def find_switch_point(timeseries):
     with pm.Model() as model:
         alpha = 1.0 / timeseries.mean()
         mu1 = pm.Exponential("mu_1", alpha)
@@ -291,7 +293,7 @@ def find_switch_point(timeseries):
         with model:
             #step = pm.Metropolis()
             #trace = pm.sample(10000, tune=5000, step=step)
-            trace = pm.sample(500, njobs=8)
+            trace = pm.sample(10000, njobs=4)
             return int(np.mean(trace['tau']))
 
             lambda_1_samples = trace['lambda_1']
@@ -307,8 +309,8 @@ def find_switch_point(timeseries):
             plt.hist(lambda_1_samples, histtype='stepfilled', bins=30, alpha=0.85,
                      label="posterior of $\lambda_1$", color="#A60628", normed=True)
             plt.legend(loc="upper left")
-            plt.title("Posterior distributions of the variables
-                $\lambda_1,\;\lambda_2,\;\tau$")
+            plt.title(rPosterior distributions of the variables
+                $\lambda_1,\;\lambda_2,\;\tau$)
             plt.xlim([15, 30])
             plt.xlabel("$\lambda_1$ value")
 
@@ -333,7 +335,7 @@ def find_switch_point(timeseries):
             print(lambda_2_samples)
             print(tau_samples)
             plt.show()
-    """
+"""
 
 def gen_run_experiment(pbar, param_names, object_name="ylego", tools=("rake",), actions=("tap_from_left",)):
     # get properties:
@@ -405,9 +407,12 @@ def gen_run_experiment(pbar, param_names, object_name="ylego", tools=("rake",), 
                             #yaw, pitch, roll, x, y = mu  # + np.random.normal(np.zeros_like(mu), np.array([1.0, 1.0, 1.0, 0.01, 0.01]))
 
                             p.resetBasePositionAndOrientation(objID, posObj=[x, y, 0.05], ornObj=p.getQuaternionFromEuler([yaw, pitch, roll]))
+                            dic_params['linearDamping']=0.001
+                            dic_params['angularDamping']=0.001
                             p.changeDynamics(toolID, 0, **dic_params)
                             # p.changeDynamics(objID[0], 0, mass=dic_params['mass'])
-                            a = p.getDynamicsInfo(toolID, 0)
+                            #a = p.getDynamicsInfo(toolID, 0)
+                            #print(a)
 
                             if action_name == "tap_from_left":
                                 base_speed = [0, -velocity, 0]
@@ -463,17 +468,20 @@ def gen_run_experiment(pbar, param_names, object_name="ylego", tools=("rake",), 
                             delete_robot(toolID)
 
 
+                            simulated_forces =np.array(simulated_forces)
+                            simulated_forces = simulated_forces-np.mean(simulated_forces[0:5])
+
                             switch_point = find_switch_point(forces_z)
                             forces_z = forces_z[switch_point:]
 
-                            switch_point = find_switch_point(np.array(simulated_forces))
+                            switch_point = find_switch_point(simulated_forces)
                             simulated_forces =simulated_forces[switch_point:]
 
-                            simulated_forces = scipy.signal.resample(np.array(simulated_forces), len(forces_z))
-                            # cdistance, path = fastdtw(forces_z, simulated_forces, dist=euclidean)
+                            simulated_forces = scipy.signal.resample(simulated_forces, len(forces_z))
+                            cdistance, path = fastdtw(forces_z[5:-5], simulated_forces[5:-5], dist=euclidean)
 
                             # print(simulated_forces)
-                            cdistance = np.linalg.norm(simulated_forces[0:-5] - forces_z[0:-5])
+                            #cdistance = np.linalg.norm(simulated_forces[10:-5] - forces_z[10:-5])
                             #print(params)
                             #print(cdistance)
                             # cost(pos - ipos, target_pos, mdist)
@@ -493,7 +501,7 @@ def gen_run_experiment(pbar, param_names, object_name="ylego", tools=("rake",), 
 
         signal.alarm(0)
         out = np.mean(costs)
-        # print('\033[93m' + str(params)+'\033[0m')
+        print('\033[93m' + str(dic_params)+'\033[0m')
         # print('\033[92m'+str(out)+'\033[0m')
         pbar.set_description('cost: %0.2f' % (out))
         pbar.update(1)
@@ -506,8 +514,8 @@ def optimize(param_names, optimizerf):
     # pbounds = {'latf': (0.05, 0.95), 'spif': (0.05, 0.95), 'rollf': (0.05, 0.95), 'rest': (0.05, 0.95), 'weight': (0.010, 0.1)}
     # pbounds = [(0.05, 0.95), (0.05, 0.95), (0.05, 0.95),  (0.05, 0.95), (0.010, 0.1)]
 
-    dbounds = {'lateralFriction': (0.05, 0.95), 'spinningFriction': (0.05, 0.95), 'rollingFriction': (0.05, 0.95),
-               'restitution': (0.05, 0.95), 'mass': (0.010, 0.1)}
+    dbounds = {'lateralFriction': (0.05, 10.0), 'spinningFriction': (0.05, 0.95), 'rollingFriction': (0.05, 0.95),
+               'restitution': (0.001, 1.0), 'mass': (0.001, 10.0)}
     # dbounds = {'lateralFriction': (0.05, 100.95), 'spinningFriction': (0.05, 0.95), 'rollingFriction': (0.05, 0.95), 'restitution': (0.05, 0.95), 'mass': (0.010, 100.1)}
     pbounds = [dbounds[param] for param in param_names]
 
@@ -566,7 +574,7 @@ if __name__ == "__main__":
 
     call_simulator()
 
-    param_names = ['mass', 'lateralFriction']  # , 'spinningFriction', 'rollingFriction', 'restitution']
+    param_names = ['mass', 'lateralFriction', 'restitution' , 'spinningFriction', 'rollingFriction']
 
     # forest_minimize
     optimize(param_names, gp_minimize)
