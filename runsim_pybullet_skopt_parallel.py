@@ -21,11 +21,9 @@ from joblib import delayed, Parallel
 import functools
 import multiprocessing
 
-from continuous_kl import KLdivergence
+import continuous_kl as kl
 
-N_EXPERIMENTS = 100  # running experiment per object per tool
-N_TRIALS = 50  # optimization steps
-ParallelExecution = True
+
 
 
 @contextmanager
@@ -345,6 +343,7 @@ def single_experiment(dic_params, tool_name, object_name, action_name):
 
 
 def experiment_setup(params, param_names, pbar, object_name, tools, actions):
+  from parametersConfig import N_EXPERIMENTS
   # latf=1.0, spif= 0.01, rollf= 0.01, rest=0.01, weight=0.1
   # latf, spif, rollf, rest, weight = params
   # print(latf, spif, rollf, rest, weight)
@@ -366,35 +365,35 @@ def experiment_setup(params, param_names, pbar, object_name, tools, actions):
   sim_eff_history = np.zeros((N_EXPERIMENTS, 2))
   for tool_name in tools:
     for action_name in actions:
+      eff_data_path = os.path.join('/media/atabak/MyPassport/website_version_final_result',
+                                   tool_name,
+                                   object_name,
+                                   action_name,
+                                   'effData.txt')
       target_pos, target_var, gnd_weight, mdist, real_eff_history = load_experiment(
-        "{}/{}/{}.txt".format(object_name, action_name, tool_name), get_eff_data=True)
-      if ParallelExecution:
+        eff_data_path, get_eff_data=True)
 
-        gen_robot(action_name, tool_name)
+      gen_robot(action_name, tool_name)
 
-        single_effs = Parallel(n_jobs=5)(delayed(single_experiment)(dic_params,
-                                                      tool_name,
-                                                      object_name,
-                                                      action_name) for i in range(N_EXPERIMENTS))
-        # import pdb; pdb.set_trace()
-        sim_eff_history = np.array(single_effs, dtype=np.float)
-        mask = np.all(np.isnan(sim_eff_history), axis=1)
-        sim_eff_history = sim_eff_history[~mask]
-      else:
-        for iter in range(N_EXPERIMENTS):
-          sim_eff_history[iter] = single_experiment(dic_params,
+      single_effs = Parallel(n_jobs=5)(delayed(single_experiment)(dic_params,
                                                     tool_name,
                                                     object_name,
-                                                    action_name)
+                                                    action_name) for _ in range(N_EXPERIMENTS))
+      # import pdb; pdb.set_trace()
+      sim_eff_history = np.array(single_effs, dtype=np.float)
+      mask = np.all(np.isnan(sim_eff_history), axis=1)
+      sim_eff_history = sim_eff_history[~mask]
 
       if np.random.rand() < 0.1:
         plt.scatter(real_eff_history[:,1], -real_eff_history[:,0], s=40, c="red", edgecolors='none', label="real")
         plt.scatter(sim_eff_history[:, 1], -sim_eff_history[:, 0], s=40, c="blue", edgecolors='none', label="sim")
         plt.legend(loc=2)
+        plt.xlim((-.3, .3))
+        plt.ylim((-.3, .3))
         plt.title('action: {}, tool: {}'.format(action_name, tool_name))
         plt.show()
       # import pdb;pdb.set_trace()
-      costs.append(KLdivergence(real_eff_history, sim_eff_history))
+      costs.append(kl.KL_from_distributions(real_eff_history, sim_eff_history))
 
     # costs[iter] = cumulative_cost
     cumulative_cost = 0
@@ -408,7 +407,11 @@ def experiment_setup(params, param_names, pbar, object_name, tools, actions):
   return out
 
 
-def gen_run_experiment(pbar, param_names, object_name="yball", tools=("rake", ), actions=("tap_from_left",)):
+def gen_run_experiment(pbar,
+                       param_names,
+                       object_name="yball",
+                       tools=("rake", "hook", "stick"),
+                       actions=("tap_from_left", "draw", "tap_from_right", "push")):
   # get properties:
   object_mesh = stl.Mesh.from_file("cvx_{}.stl".format(object_name))
   props = object_mesh.get_mass_properties()
@@ -435,8 +438,8 @@ def gen_run_experiment(pbar, param_names, object_name="yball", tools=("rake", ),
 
 
 def optimize(param_names):
-  dbounds = {'lateralFriction': (0.05, 0.95), 'spinningFriction': (0.05, 0.95), 'rollingFriction': (0.05, 0.95),
-             'restitution': (0.05, 0.95), 'mass': (0.010, 0.1)}
+  from parametersConfig import dbounds, N_TRIALS
+
   pbounds = [dbounds[param] for param in param_names]
 
   with tqdm(total=N_TRIALS - 1, file=sys.stdout) as pbar:
@@ -451,6 +454,7 @@ def optimize(param_names):
 
 
 def test(param_names):
+  from parametersConfig import N_TRIALS
   # test_tools = ("hook", "rake")
   test_tools = ("rake",)
   # test_actions = ("draw", "tap_from_left")
@@ -497,9 +501,10 @@ def test(param_names):
 
 if __name__ == "__main__":
   # signal.signal(signal.SIGALRM, handler)
+  from parametersConfig import param_names
 
   # call_simulator()
-  param_names = ['mass', 'lateralFriction']  # , 'spinningFriction', 'rollingFriction', 'restitution']
+
   optimize(param_names)
   #p.startStateLogging(p.STATE_LOGGING_VIDEO_MP4, "pybullet.mp4")
 
