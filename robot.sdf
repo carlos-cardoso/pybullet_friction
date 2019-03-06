@@ -1,7 +1,7 @@
 <sdf version="1.6">
 
     <model name="robot">
-        <pose>0.02 0.0 0.0 1.57 0.0 0.0</pose>
+        <pose>.02 0.0 0.0 1.57 0.0 0.0</pose>
         <static>false</static>
         <link name="world" />
 
@@ -57,15 +57,15 @@
             <kinematic>0</kinematic>
         </link>
         <joint name="robotprismatic" type="prismatic">
-            <pose>0 0.0 0 0 0 0</pose>
+            <pose>0 -0.15 0 0 0 0</pose>
             <child>robotlink</child>
             <parent>world</parent>
             <axis>
                 <limit>
-                    <lower>-0.0</lower>
+                    <lower>0.0</lower>
                     <upper>0.12</upper>
                 </limit>
-                <xyz>1 0 0</xyz>
+                <xyz>0 1 0</xyz>
             </axis>
         </joint>
     </model>

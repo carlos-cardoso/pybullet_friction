@@ -407,6 +407,8 @@ def gen_run_experiment(pbar, param_names, object_name="ylego", tools=("rake",), 
                             #yaw, pitch, roll, x, y = mu  # + np.random.normal(np.zeros_like(mu), np.array([1.0, 1.0, 1.0, 0.01, 0.01]))
 
                             p.resetBasePositionAndOrientation(objID, posObj=[x, y, 0.05], ornObj=p.getQuaternionFromEuler([yaw, pitch, roll]))
+                            dic_params['linearDamping']=0.001
+                            dic_params['angularDamping']=0.001
                             p.changeDynamics(toolID, 0, **dic_params)
                             # p.changeDynamics(objID[0], 0, mass=dic_params['mass'])
                             #a = p.getDynamicsInfo(toolID, 0)

@@ -375,7 +375,17 @@ def experiment_setup(params, param_names, pbar, object_name, tools, actions):
 
       gen_robot(action_name, tool_name)
 
-      single_effs = Parallel(n_jobs=5)(delayed(single_experiment)(dic_params,
+        single_effs = Parallel(n_jobs=2)(delayed(single_experiment)(dic_params,
+                                                      tool_name,
+                                                      object_name,
+                                                      action_name) for i in range(N_EXPERIMENTS))
+        # import pdb; pdb.set_trace()
+        sim_eff_history = np.array(single_effs, dtype=np.float)
+        mask = np.all(np.isnan(sim_eff_history), axis=1)
+        sim_eff_history = sim_eff_history[~mask]
+      else:
+        for iter in range(N_EXPERIMENTS):
+          sim_eff_history[iter] = single_experiment(dic_params,
                                                     tool_name,
                                                     object_name,
                                                     action_name) for _ in range(N_EXPERIMENTS))
