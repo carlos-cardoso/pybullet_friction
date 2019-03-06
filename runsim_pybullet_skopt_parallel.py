@@ -230,10 +230,20 @@ def gen_robot(action_name, tool_name):
 
 
 @with_timeout(6.0)
-def single_experiment(dic_params, tool_name, object_name, action_name):
+def single_experiment(dic_params, tool_name, object_name, action_name, idx):
   p = bc.BulletClient(connection_mode=pybullet.DIRECT)
   call_simulator(p)
   objID = load_object(p)
+
+  if idx == 0:
+    dynamics = p.getDynamicsInfo(objID, -1)
+    print('\033[93m' + "\nmass:" + str(dynamics[0]) +
+              " lateral f:" + str(dynamics[1]) +
+              " spinning f:" + str(dynamics[7]) +
+              " rolling f:" + str(dynamics[6]) +
+              " restitution:" + str(dynamics[5]) +
+              '\033[0m')
+
 
   offset = 0.01 if object_name == "yball" else 0.0
 
@@ -272,7 +282,15 @@ def single_experiment(dic_params, tool_name, object_name, action_name):
       ipos = np.array([x, y])
 
       p.resetBasePositionAndOrientation(objID, posObj=[x, y, 0.05], ornObj=[yaw, pitch, roll, 1])
-      p.changeDynamics(objID, 0, **dic_params)
+      p.changeDynamics(objID, -1, **dic_params)
+      if idx == 0:
+        dynamics = p.getDynamicsInfo(objID, -1)
+        print('\033[93m' + "\nafter change - mass:" + str(dynamics[0]) +
+              " lateral f:" + str(dynamics[1]) +
+              " spinning f:" + str(dynamics[7]) +
+              " rolling f:" + str(dynamics[6]) +
+              " restitution:" + str(dynamics[5]) +
+              '\033[0m')
       get_obj_xy(p, objID)
 
       mu = 0.04
@@ -348,6 +366,8 @@ def experiment_setup(params, param_names, pbar, object_name, tools, actions):
   # latf, spif, rollf, rest, weight = params
   # print(latf, spif, rollf, rest, weight)
   dic_params = {pname: params[i] for i, pname in enumerate(param_names)}
+  dic_params['linearDamping'] = 0.0
+  dic_params['angularDamping'] = 0.0
 
 
   # actions = ["draw", "tap_from_left", "tap_from_right", "push"]
@@ -363,6 +383,7 @@ def experiment_setup(params, param_names, pbar, object_name, tools, actions):
 
   costs = list()
   sim_eff_history = np.zeros((N_EXPERIMENTS, 2))
+  print_info = 0
   for tool_name in tools:
     for action_name in actions:
       eff_data_path = os.path.join('/media/atabak/MyPassport/website_version_final_result',
@@ -375,21 +396,16 @@ def experiment_setup(params, param_names, pbar, object_name, tools, actions):
 
       gen_robot(action_name, tool_name)
 
-        single_effs = Parallel(n_jobs=2)(delayed(single_experiment)(dic_params,
-                                                      tool_name,
-                                                      object_name,
-                                                      action_name) for i in range(N_EXPERIMENTS))
-        # import pdb; pdb.set_trace()
-        sim_eff_history = np.array(single_effs, dtype=np.float)
-        mask = np.all(np.isnan(sim_eff_history), axis=1)
-        sim_eff_history = sim_eff_history[~mask]
-      else:
-        for iter in range(N_EXPERIMENTS):
-          sim_eff_history[iter] = single_experiment(dic_params,
+      single_effs = Parallel(n_jobs=5)(delayed(single_experiment)(dic_params,
                                                     tool_name,
                                                     object_name,
-                                                    action_name) for _ in range(N_EXPERIMENTS))
+                                                    action_name,
+                                                    idx+print_info) for idx in range(N_EXPERIMENTS))
+      print_info += 1
       # import pdb; pdb.set_trace()
+      sim_eff_history = np.array(single_effs, dtype=np.float)
+      mask = np.all(np.isnan(sim_eff_history), axis=1)
+      sim_eff_history = sim_eff_history[~mask]
       sim_eff_history = np.array(single_effs, dtype=np.float)
       mask = np.all(np.isnan(sim_eff_history), axis=1)
       sim_eff_history = sim_eff_history[~mask]
@@ -410,8 +426,10 @@ def experiment_setup(params, param_names, pbar, object_name, tools, actions):
 
   # signal.alarm(0)
   out = sum(costs)/len(costs)
+  # out = max(costs)
   # print('\033[93m' + str(params)+'\033[0m')
   # print('\033[92m'+str(out)+'\033[0m')
+
   pbar.set_description('cost: %0.2f' % (out))
   pbar.update(1)
   return out
@@ -451,8 +469,9 @@ def optimize(param_names):
   from parametersConfig import dbounds, N_TRIALS
 
   pbounds = [dbounds[param] for param in param_names]
-  os.remove(fname)
-  print("previous optimization results removed")
+  if os.path.exists(fname):
+    os.remove(fname)
+    print("previous optimization results removed")
 
   with tqdm(total=N_TRIALS - 1, file=sys.stdout) as pbar:
     run_experiment = gen_run_experiment(pbar, param_names)
@@ -520,5 +539,5 @@ if __name__ == "__main__":
   optimize(param_names)
   #p.startStateLogging(p.STATE_LOGGING_VIDEO_MP4, "pybullet.mp4")
 
-  test(param_names)
+  # test(param_names)
   #p.stopStateLogging(p.STATE_LOGGING_VIDEO_MP4)
