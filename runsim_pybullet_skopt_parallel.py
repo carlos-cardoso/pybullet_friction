@@ -411,7 +411,7 @@ def gen_run_experiment(pbar,
                        param_names,
                        object_name="yball",
                        tools=("rake", "hook", "stick"),
-                       actions=("tap_from_left", "draw", "tap_from_right", "push")):
+                       actions=("tap_from_left", "tap_from_right", "push")):
   # get properties:
   object_mesh = stl.Mesh.from_file("cvx_{}.stl".format(object_name))
   props = object_mesh.get_mass_properties()
@@ -441,10 +441,12 @@ def optimize(param_names):
   from parametersConfig import dbounds, N_TRIALS
 
   pbounds = [dbounds[param] for param in param_names]
+  os.remove(fname)
+  print("previous optimization results removed")
 
   with tqdm(total=N_TRIALS - 1, file=sys.stdout) as pbar:
     run_experiment = gen_run_experiment(pbar, param_names)
-    res = gp_minimize(run_experiment, pbounds, n_calls=N_TRIALS)
+    res = dummy_minimize(run_experiment, pbounds, n_calls=N_TRIALS)
     res.specs['args']['func'] = None #  function can't be saved because it has pbar as input
     # import pdb;pdb.set_trace()
     # res = forest_minimize(run_experiment, pbounds, n_calls=100)
