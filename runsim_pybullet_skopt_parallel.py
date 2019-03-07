@@ -11,7 +11,7 @@ import pybullet
 import pybullet_utils.bullet_client as bc
 import pybullet_data
 # import signal
-from skopt import gp_minimize, dump, load, forest_minimize, dummy_minimize
+from skopt import dump, load
 from tqdm import tqdm, tqdm_notebook
 import os
 import sys
@@ -368,6 +368,7 @@ def experiment_setup(params, param_names, pbar, object_name, tools, actions):
   dic_params = {pname: params[i] for i, pname in enumerate(param_names)}
   dic_params['linearDamping'] = 0.0
   dic_params['angularDamping'] = 0.0
+  # dic_params['rollingFriction'] = 0.002#21886378300597145
 
 
   # actions = ["draw", "tap_from_left", "tap_from_right", "push"]
@@ -437,9 +438,9 @@ def experiment_setup(params, param_names, pbar, object_name, tools, actions):
 
 def gen_run_experiment(pbar,
                        param_names,
-                       object_name="yball",
-                       tools=("rake", "hook", "stick"),
-                       actions=("tap_from_left", "tap_from_right", "push")):
+                       object_name,
+                       tools,
+                       actions):
   # get properties:
   object_mesh = stl.Mesh.from_file("cvx_{}.stl".format(object_name))
   props = object_mesh.get_mass_properties()
@@ -466,7 +467,7 @@ def gen_run_experiment(pbar,
 
 
 def optimize(param_names):
-  from parametersConfig import dbounds, N_TRIALS
+  from parametersConfig import dbounds, N_TRIALS, optimizer, object_name, train_tools, train_actions
 
   pbounds = [dbounds[param] for param in param_names]
   if os.path.exists(fname):
@@ -474,8 +475,8 @@ def optimize(param_names):
     print("previous optimization results removed")
 
   with tqdm(total=N_TRIALS - 1, file=sys.stdout) as pbar:
-    run_experiment = gen_run_experiment(pbar, param_names)
-    res = dummy_minimize(run_experiment, pbounds, n_calls=N_TRIALS)
+    run_experiment = gen_run_experiment(pbar, param_names, object_name, train_tools, train_actions)
+    res = optimizer(run_experiment, pbounds, n_calls=N_TRIALS)
     res.specs['args']['func'] = None #  function can't be saved because it has pbar as input
     # import pdb;pdb.set_trace()
     # res = forest_minimize(run_experiment, pbounds, n_calls=100)
@@ -485,11 +486,11 @@ def optimize(param_names):
 
 
 def test(param_names):
-  from parametersConfig import N_TRIALS
+  from parametersConfig import N_TRIALS, test_tools, test_actions
   # test_tools = ("hook", "rake")
-  test_tools = ("rake",)
+  # test_tools = ("rake",)
   # test_actions = ("draw", "tap_from_left")
-  test_actions = ("tap_from_left",)
+  # test_actions = ("tap_from_left",)
 
   with tqdm(total=N_TRIALS - 1, file=sys.stdout) as pbar:
     func = gen_run_experiment(pbar, param_names, tools=test_tools, actions=test_actions)
@@ -497,8 +498,9 @@ def test(param_names):
     c_all = []
     costs = []
     best = []
+    best_params = []
     best_iters = []
-    max_target = 1000.0
+    max_target = 1000000.0
     res = load(fname)
     # x [list]: location of the minimum.
     # fun [float]: function value at the minimum.
@@ -523,11 +525,14 @@ def test(param_names):
         pprint(params)
         c = func(params)
         costs.append(c)
+        best_params.append(params)
+
 
   print(c_all)
   print(best)
   print(costs)
   print(ind)
+  print(best_params)
 
 
 if __name__ == "__main__":
@@ -536,8 +541,8 @@ if __name__ == "__main__":
 
   # call_simulator()
 
-  optimize(param_names)
+  # optimize(param_names)
   #p.startStateLogging(p.STATE_LOGGING_VIDEO_MP4, "pybullet.mp4")
 
-  # test(param_names)
+  test(param_names)
   #p.stopStateLogging(p.STATE_LOGGING_VIDEO_MP4)
