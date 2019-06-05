@@ -16,12 +16,13 @@ import os
 import sys
 from contextlib import contextmanager
 from matplotlib import pyplot as plt
-from universal_divergence import estimate
+#from universal_divergence import estimate as KLD
+from continuous_kl import KL_from_distributions as KLD
 
-from continuous_kl import KLdivergence
+#from continuous_kl import KL_from_distributions as KLD
 
-N_EXPERIMENTS = 20  # running experiment per object per tool
-N_TRIALS = 50  # optimization steps
+N_EXPERIMENTS = 50  # running experiment per object per tool
+N_TRIALS = 25  # optimization steps
 PYBULLET_INSTANCE = p.DIRECT
 WATCHDOG = True
 
@@ -302,13 +303,15 @@ def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake",), a
               mu = init_poses[tool_name][action_name]
               #yaw, pitch, roll, x, y = np.random.normal(mu, np.array([1.0, 1.0, 1.0, dic_params['xnoise'], dic_params['ynoise']]))
               yaw, pitch, roll, x, y = np.random.normal(mu, np.array([1.0, 1.0, 1.0, 0.01, 0.01]))
-              ipos = np.array([x, y])
+              initial_xy = np.array([x, y])
 
               p.resetBasePositionAndOrientation(objID, posObj=[x, y, 0.05], ornObj=[yaw, pitch, roll, 1])
               # p.changeDynamics(objID[0], 0,  mass=weight, lateralFriction=latf, spinningFriction=spif, rollingFriction=rollf, restitution=rest)
               dic_params2=dict(dic_params)
               dic_params2['linearDamping']=0.0
               dic_params2['angularDamping']=0.0
+              dic_params2['mass']=0.001*models[object_name][1]
+              #dic_params2['rollingFriction']=0.00001
               #dic_params['lateralFriction']=0.0001
               #dic_params['spinningFriction']=0.0001
               #dic_params['rollingFriction']=0.0001
@@ -343,14 +346,16 @@ def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake",), a
 
               # Let object fall to the ground and stop it
               pxyz, pori = p.getBasePositionAndOrientation(objID)
-              nxyz = 100 * np.ones_like(pxyz)
-              while not np.allclose(nxyz[-1:], pxyz[-1:], atol=1e-6):
+              position_after_fall = 100 * np.ones_like(pxyz)
+              orientation_after_fall = 100 * np.ones_like(pori)
+              while not np.allclose(position_after_fall[-1:], pxyz[-1:], atol=1e-6):
                 p.stepSimulation()
-                pxyz = nxyz
-                nxyz, nori = p.getBasePositionAndOrientation(objID)
+                pxyz = position_after_fall
+                position_after_fall, orientation_after_fall = p.getBasePositionAndOrientation(objID)
 
-              p.resetBasePositionAndOrientation(objID, posObj=pxyz, ornObj=pori)
-              p.resetBaseVelocity(objID, 0)
+              #p.resetBasePositionAndOrientation(objID, posObj=pxyz, ornObj=pori)
+              p.resetBasePositionAndOrientation(objID, posObj=[initial_xy[0], initial_xy[1], position_after_fall[2]] , ornObj=orientation_after_fall)
+              p.resetBaseVelocity(objID, [0.0, 0.0, 0.0])
               ppos = get_obj_xy(objID)
               npos = 100 * np.ones_like(ppos)
               iters = 0
@@ -384,7 +389,7 @@ def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake",), a
               # p.resetSimulation()
               # time.sleep(1)
               # import pdb;pdb.set_trace()
-              sim_eff_history[iter] = pos - ipos
+              sim_eff_history[iter] = pos - initial_xy
               # cumulative_cost += cost(pos - ipos, target_pos, mdist)
 
               success = True
@@ -412,7 +417,8 @@ def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake",), a
         # import pdb;pdb.set_trace()
         #kld=KLdivergence(real_eff_history, sim_eff_history)
         #kld=cost(real_eff_history, sim_eff_history)
-        kld = estimate(real_eff_history, sim_eff_history)
+        #kld = estimate(real_eff_history, sim_eff_history)
+        kld = KLD(real_eff_history, sim_eff_history)
         costs.append(kld)
 
       # costs[iter] = cumulative_cost
@@ -432,7 +438,7 @@ def gen_run_experiment(pbar, param_names,object_name="yball", tools=("rake",), a
 
 
 def optimize(param_names, fname, object_name="yball", opt_f=gp_minimize):
-  dbounds = {'lateralFriction': (0.0001, 5.0), 'spinningFriction': (0.0001, 5.0), 'rollingFriction': (0.0001, 5.0),
+  dbounds = {'lateralFriction': (0.01, 5.0), 'spinningFriction': (0.0001, 5.0), 'rollingFriction': (0.0000001, 0.001),
              'restitution': (0.0001, 0.95), 'mass': (0.0001, 10.0), 'xnoise' : (0.0, 0.05), 'ynoise' : (0.0, 0.05),
              'xmean' : (-0.02, 0.02), 'ymean' : (-0.02, 0.02)}
   pbounds = [dbounds[param] for param in param_names]
@@ -460,6 +466,7 @@ def test(param_names, fname, obj_name):
     costs = []
     best = []
     best_iters = []
+    best_params = []
     max_target = 1000.0
     res = load(fname)
     # x [list]: location of the minimum.
@@ -482,6 +489,7 @@ def test(param_names, fname, obj_name):
         best_iters.append(ind)
         print("new best:{}".format(ctarget))
         params = xi  # data['params']
+        best_params.append(params)
         pprint(params)
         c = func(params)
         costs.append(c)
@@ -489,6 +497,7 @@ def test(param_names, fname, obj_name):
   print(c_all)
   print(best)
   print(costs)
+  print(best_params)
   print(ind)
 
 
@@ -498,14 +507,13 @@ if __name__ == "__main__":
     signal.signal(signal.SIGALRM, handler)
 
   call_simulator()
-  param_names = ['mass', 'lateralFriction', 'rollingFriction']#, 'xnoise', 'ynoise']
+  param_names = ['lateralFriction', 'rollingFriction']#, 'xnoise', 'ynoise']
 
-  fname = 'saved/rollf_weight.bz2'
-  object_name = ["yball", "ylego"]
+  object_name = ["yball",]
 
   for obj in object_name:
-    #optimize(param_names, "saved/gp_{}.bz2".format(obj), obj, opt_f=gp_minimize)
-    test(param_names, "saved/gp_{}.bz2".format(obj), obj)
+    optimize(param_names, "saved/gp_fixed_{}.bz2".format(obj), obj, opt_f=gp_minimize)
+    test(param_names, "saved/gp_fixed_{}.bz2".format(obj), obj)
 
   #p.startStateLogging(p.STATE_LOGGING_VIDEO_MP4, "pybullet.mp4")
 
