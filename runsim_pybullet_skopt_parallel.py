@@ -229,7 +229,7 @@ def gen_robot(action_name, tool_name):
   tree.write('robot.sdf')
 
 
-@with_timeout(6.0)
+@with_timeout(60.0)
 def single_experiment(dic_params, tool_name, object_name, action_name, idx):
   p = bc.BulletClient(connection_mode=pybullet.DIRECT)
   call_simulator(p)
@@ -237,11 +237,11 @@ def single_experiment(dic_params, tool_name, object_name, action_name, idx):
 
   if idx == 0:
     dynamics = p.getDynamicsInfo(objID, -1)
-    print('\033[93m' + "\nmass:" + str(dynamics[0]) +
-              " lateral f:" + str(dynamics[1]) +
-              " spinning f:" + str(dynamics[7]) +
-              " rolling f:" + str(dynamics[6]) +
-              " restitution:" + str(dynamics[5]) +
+    print('\033[91m' + "\nDefault mass:" + str(dynamics[0]) +
+              ", lateral f:" + str(dynamics[1]) +
+              ", spinning f:" + str(dynamics[7]) +
+              ", rolling f:" + str(dynamics[6]) +
+              ", restitution:" + str(dynamics[5]) +
               '\033[0m')
 
 
@@ -285,12 +285,12 @@ def single_experiment(dic_params, tool_name, object_name, action_name, idx):
       p.changeDynamics(objID, -1, **dic_params)
       if idx == 0:
         dynamics = p.getDynamicsInfo(objID, -1)
-        print('\033[93m' + "\nafter change - mass:" + str(dynamics[0]) +
-              " lateral f:" + str(dynamics[1]) +
-              " spinning f:" + str(dynamics[7]) +
-              " rolling f:" + str(dynamics[6]) +
-              " restitution:" + str(dynamics[5]) +
-              '\033[0m')
+        print('\033[93m' + "\nafter change - mass:" + str(dynamics[0]) + '\033[0m' +
+              '\033[94m' + ", lateral f:" + str(dynamics[1]) + '\033[0m' +
+              '\033[92m' + ", spinning f:" + str(dynamics[7]) + '\033[0m' +
+                           ", rolling f:" + str(dynamics[6]) +
+              '\033[93m' + ", restitution:" + str(dynamics[5]) + '\033[0m'
+              )
       get_obj_xy(p, objID)
 
       mu = 0.04
@@ -486,14 +486,14 @@ def optimize(param_names):
 
 
 def test(param_names):
-  from parametersConfig import N_TRIALS, test_tools, test_actions
+  from parametersConfig import N_TRIALS, test_tools, test_actions, object_name
   # test_tools = ("hook", "rake")
   # test_tools = ("rake",)
   # test_actions = ("draw", "tap_from_left")
   # test_actions = ("tap_from_left",)
 
   with tqdm(total=N_TRIALS - 1, file=sys.stdout) as pbar:
-    func = gen_run_experiment(pbar, param_names, tools=test_tools, actions=test_actions)
+    func = gen_run_experiment(pbar, param_names, object_name, tools=test_tools, actions=test_actions)
 
     c_all = []
     costs = []
@@ -515,7 +515,7 @@ def test(param_names):
       pprint(res.func_vals[ind])
       ctarget = res.func_vals[ind]
       c_all.append(ctarget)
-      if ctarget < max_target:
+      if max_target-ctarget > 0.1*max_target:  # at least 10% improvement
         # if ctarget > 0:
         max_target = ctarget
         best.append(ctarget)
@@ -541,8 +541,8 @@ if __name__ == "__main__":
 
   # call_simulator()
 
-  # optimize(param_names)
+  optimize(param_names)
   #p.startStateLogging(p.STATE_LOGGING_VIDEO_MP4, "pybullet.mp4")
 
-  test(param_names)
+  # test(param_names)
   #p.stopStateLogging(p.STATE_LOGGING_VIDEO_MP4)
