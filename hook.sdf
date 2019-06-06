@@ -3,12 +3,12 @@
     <model name="robot">
         <pose>.02 0.0 0.0 1.57 0.0 0.0</pose>
         <static>false</static>
-        <link name="world" />
+        <link name="world"></link>
 
         <link name="robotlink">
             <inertial>
                 <mass>5.0</mass>
-                
+                <!-- inertia based on solid sphere 2/5 mr^2 -->
                 <inertia>
                     <ixx>2.37e-6</ixx>
                     <iyy>2.37e-6</iyy>
@@ -21,7 +21,7 @@
             <collision name="robot_collision">
                 <geometry>
                     <mesh>
-                        <uri>cvx_rake.obj</uri>
+                        <uri>cvx_hook.obj</uri>
                         <scale>0.001 0.001 0.001</scale>
                     </mesh>
                 </geometry>
@@ -32,7 +32,7 @@
                     </bounce>
                 </surface>
             </collision>
-            <sensor name="my_contact" type="contact">
+            <sensor name='my_contact' type='contact'>
                 <contact>
                     <collision>robot_collision</collision>
                 </contact>
@@ -41,7 +41,7 @@
             <visual name="visual">
                 <geometry>
                     <mesh>
-                        <uri>cvx_rake.obj</uri>
+                        <uri>cvx_hook.obj</uri>
                         <scale>0.001 0.001 0.001</scale>
                     </mesh>
                 </geometry>
