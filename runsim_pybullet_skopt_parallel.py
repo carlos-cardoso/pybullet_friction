@@ -24,7 +24,6 @@ import functools
 from joblib import delayed, Parallel
 
 PYBULLET_INSTANCE = pybullet.DIRECT
-WATCHDOG = False
 PLOTTING = False
 
 logging.basicConfig(filename="experiments_log.txt",
@@ -271,8 +270,6 @@ def experiment_setup(params, param_names, pbar, object_name, tools, actions):
         sim_eff_history = np.zeros((N_EXPERIMENTS, 2))
         cumulative_cost = 0
 
-        if WATCHDOG:
-            signal.alarm(0)
     out = sum(costs)/len(costs)
     print('\033[93m' + str(dic_params)+'\033[0m')
     pbar.set_description('cost: %0.2f' % (out))
@@ -464,9 +461,6 @@ def test(param_names, fname, obj_name):
 if __name__ == "__main__":
 
   logging.info("RIPPE")
-
-  if WATCHDOG:
-    signal.signal(signal.SIGALRM, handler)
 
   from parametersConfig import object_name, param_names
 
