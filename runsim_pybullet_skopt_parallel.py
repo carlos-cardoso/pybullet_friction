@@ -203,9 +203,7 @@ def gen_robot(action_name, tool_name):
 #def cost(x,y):
 #  return (100*(np.linalg.norm(x.mean(0)-y.mean(0)) + np.linalg.norm(x.var(0)-y.var(0))))**2
 
-def gen_run_experiment(pbar, param_names):
-  from parametersConfig import train_tools as tools
-  from parametersConfig import train_actions as actions
+def gen_run_experiment(pbar, param_names, tools, actions):
   from parametersConfig import object_name
 
   # get properties:
@@ -403,12 +401,12 @@ def single_experiment(dic_params, tool_name, object_name, action_name, idx):
 
 
 def optimize(param_names, fname):
-  from parametersConfig import dbounds, N_TRIALS, optimizer
+  from parametersConfig import dbounds, N_TRIALS, optimizer, train_tools, train_actions
 
   pbounds = [dbounds[param] for param in param_names]
 
   with tqdm(total=N_TRIALS-1, file=sys.stdout) as pbar:
-        run_experiment = gen_run_experiment(pbar, param_names)
+        run_experiment = gen_run_experiment(pbar, param_names, train_tools, train_actions)
         res = optimizer(run_experiment, pbounds, n_calls=N_TRIALS)
         res.specs['args']['func'] = None #  function can't be saved because it has pbar as input
   dump(res, fname, store_objective=False)
@@ -418,7 +416,7 @@ def optimize(param_names, fname):
 def test(param_names, fname, obj_name):
   from parametersConfig import N_TRIALS, test_tools, test_actions
   with tqdm(total=N_TRIALS - 1, file=sys.stdout) as pbar:
-    func = gen_run_experiment(pbar, param_names, tools=test_tools, actions=test_actions, object_name=obj_name)
+    func = gen_run_experiment(pbar, param_names, tools=test_tools, actions=test_actions)
 
     c_all = []
     costs = []
